@@ -1,0 +1,3 @@
+./models/example_lora/checkpoint-3:
+average clip score: 15.1767
+************************************
