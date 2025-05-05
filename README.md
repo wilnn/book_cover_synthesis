@@ -1,7 +1,7 @@
 # Book Cover Synthesis
 ## Obtaining the dataset for the grader
-The dataset is located in the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.edu. The path to it is /home/public/htnguyen/project/book_cover_synthesis/dataset_for_huggingface_filter
-- First you need to ssh to username@cs-gpu2.cs.uml.edu
+The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.edu. The path to it is /home/public/htnguyen/project/book_cover_synthesis/dataset_for_huggingface_filter
+- First, you need to ssh to username@cs-gpu2.cs.uml.edu
   ```bash
   ssh username@cs-gpu2.cs.uml.edu
   ```
@@ -10,7 +10,7 @@ The dataset is located in the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
   cd /home/public
   cp -r /home/public/htnguyen/project/book_cover_synthesis/dataset_for_huggingface_filter .
   ```
-  - Now, you have obtained the dataset and copied it to the current folder (at `/home/public`). Move this folder to inside the `book_cover_synthesis` that you just cloned or pulled. Please email me with any problems, like permission denied error, etc. 
+  - Now, you have obtained the dataset and copied it to the current folder (at `/home/public`). Move this folder to inside the `book_cover_synthesis` folder that you just cloned or pulled. Please email me with any problems, like permission denied error, etc. 
 
 ## Setup
 - Python version: 3.12.9
