@@ -78,7 +78,7 @@ The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
   --te1_lr=5e-5 \
   --te2_lr=1e-5
   ```
-  An Example for TRAIN_DIR on my computer:
+  An Example for TRAIN_DIR on my computer:<br>
   `export TRAIN_DIR="/home/public/username/project/book_cover_synthesis/dataset_for_huggingface_filter/train_set"`
 - If you want to resume training from the latest checkpoint, do:
   ```bash
