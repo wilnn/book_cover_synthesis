@@ -1,6 +1,6 @@
 # Book Cover Synthesis
 ## stable diffusion XL Model
-**the detail architecture of the UNET, text encoders is shown in the file `sdxl_architecture.txt` in the `src` folder**
+**The detailed architecture of the UNET, text encoders is shown in the file `sdxl_architecture.txt` in the `src` folder**
 - A latent diffusion model created by Stability AI.
 - 2 text encoders: OpenCLIP-ViT/G (By OpenAI) and CLIP-ViT/L (By LAION)
 - VAE: same autoencoder architecture used for the original Stable Diffusion at a larger batch size (256 vs 9). The encoder downsamples the input image from 1024×1024×3 to 128×128×4
