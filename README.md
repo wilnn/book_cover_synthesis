@@ -1,18 +1,102 @@
 # Book Cover Synthesis
-## Obtaining the dataset for the grader
-The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.edu. The path to it is /home/public/htnguyen/project/book_cover_synthesis/dataset_for_huggingface_filter
-- First, you need to ssh to username@cs-gpu2.cs.uml.edu
-  ```bash
-  ssh username@cs-gpu2.cs.uml.edu
-  ```
-- Then, run these commands:
-  ```bash
-  cd /home/public
-  cp -r /home/public/htnguyen/project/book_cover_synthesis/dataset_for_huggingface_filter .
-  ```
-  - Now, you have obtained the dataset and copied it to the current folder (at `/home/public`). Move this folder to inside the `book_cover_synthesis` folder that you just cloned or pulled. Please email me with any problems, like permission denied error, etc. 
+## stable diffusion XL Model
+- A latent diffusion model created by Stability AI.
+- 2 text encoders: OpenCLIP-ViT/G (By OpenAI) and CLIP-ViT/L (By LAION)
+- VAE: same autoencoder architecture used for the original Stable Diffusion at a larger batch size (256 vs 9). The encoder downsamples the input image from 1024×1024×3 to 128×128×4
+- Unet: three times larger UNet backbone. mainly due to more attention blocks and a larger cross-attention context, as SDXL uses a second text encoder
+- Use the Euler Discrete noise scheduler, which is faster and more efficient than the DDPM scheduler 
+- Epsilon noise prediction type: Predict the added noise during the forward diffusion
 
-## Setup
+
+### Problem with the base stable diffusion XL model
+- Struggle slightly to generate images with text on them<br>
+![image](https://github.com/user-attachments/assets/315bac91-68cf-4c4a-891d-620f81c82a3c)<br>
+<span style="font-size:5px">Image from their research paper</span>
+- limited text prompt of only 77 tokens due to the maximum length of the CLIP encoder. This problem needs to be addressed since the prompts that I use are often at least 200 tokens.
+- Even though rare, this model can output a grayscale image even though you don't ask it to. It can be due to the training data of the model has a lot of grayscale images. 
+### Problem with fine-tuning the diffusion model
+Due to the fact that noise is added with random time steps for each image in the batch at each training step, the model essentially has to learn to predict different noise for the same images at different epochs, which leads to the training loss fluctuating a lot during training. Therefore, I can not use the train loss to monitor during training to see if the model is converging. The good news is that this is completely normal when training stable diffusion models.<br>
+![image](https://github.com/user-attachments/assets/359e5a46-0350-410f-8564-16b88e9a0b38)
+
+## Overcome the limitation of the maximum sequence length of the encoder
+- The clip text encoder has a maximum sequence length of only 77 tokens. However, the text prompt for this task is often at least 250 tokens. The good news is that the UNET does not limit the sequence length.
+
+- Solution:
+  - First, tokenized the entire text prompt using the provided tokenizer that goes with the clip text encoder, and padded, truncated the prompts in the batch to have a max length of 385 tokens.  (the max length size should be divisible by the original max length size(385 is divisible by 77)
+  - Then, encode each chunk of 77 tokens using the clip text encoder
+  - Finally, concatenate the encoded tokens back together 
+  - This big encoded prompt, later on, can be passed directly to the UNET along with the noisy latent
+  - The stable diffusion XL model also uses a pooled embedding, which is a token that summarizes the entire prompt. To create the pooled embedding properly for this big prompt, I decided to do the average of the pooled embedding of each 77-token chunk. This ultimately gave me a single token that summarizes this big prompt.
+
+## Training (Fine-tuning):
+### LoRA settings:
+After several tests and experiments, I have decided that LoRA rank 32 and alpha 32 apply to the K, Q, V projection layers, the in projection layer, and out projection layer in the attention block in UNet and text encoders (also apply to the multi-layer perceptron in the text encoders). I also apply LoRA to the text encoders because I want it to learn the textual information in the prompt during fine-tuning, since the prompts that I used are much longer than what the text encoder was designed for. Applying LoRA to other layers, such as the convolutional layer in the UNET blocks, will cause the model to output grayscale images more often than before fine-tuning.
+```Python
+unet_lora_config = LoraConfig(
+        r=args.rank,
+        lora_alpha=args.rank,
+        init_lora_weights="gaussian",
+        #target_modules=["to_k", "to_q", "to_v", "to_out.0", "down_blocks.0.resnets.0.conv1", "down_blocks.0.resnets.1.conv1", "down_blocks.1.resnets.0.conv1", "down_blocks.1.resnets.1.conv1", "down_blocks.2.resnets.0.conv1", "down_blocks.2.resnets.1.conv1", "mid_block.resnets.0.conv1", "mid_block.resnets.1.conv1", "down_blocks.0.resnets.0.conv2", "down_blocks.0.resnets.1.conv2", "down_blocks.1.resnets.0.conv2", "down_blocks.1.resnets.1.conv2", "down_blocks.2.resnets.0.conv2", "down_blocks.2.resnets.1.conv2", "mid_block.resnets.0.conv2", "mid_block.resnets.1.conv2"],# apply the lora layer to all the module/layer that are "to_k", "to_q", "to_v", "to_out.0" in any block that have them (down block, middle block, up block, etc.,)
+        target_modules=["to_k", "to_q", "to_v", "to_out.0", 'proj_out', 'proj_in'], # apply the lora layer to all the module/layer that are "to_k", "to_q", "to_v", "to_out.0" in any block that have them (down block, middle block, up block, etc.,)
+    )
+unet.add_adapter(unet_lora_config)
+
+text_lora_config = LoraConfig(
+            r=args.rank,
+            lora_alpha=args.rank,
+            init_lora_weights="gaussian",
+            target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "mlp.fc1", "mlp.fc2"],
+        )
+text_encoder_one.add_adapter(text_lora_config)
+        text_encoder_two.add_adapter(text_lora_config)
+```
+
+### The training (fine-tuning) process:
+- Freeze all the parameters in the base model 
+- Then, apply the Lora weights to the layers that I want
+ 
+- During training:
+  - Start with clean images (1152x896x3) in a batch
+  - Pass the images through the VAE encoder and get the latent 
+  - Add Gaussian noise with random time steps using the noise scheduler to the latents in the batch
+  - random time steps because we want to save training time and computing power
+  - Tokenize and encode the text prompts using the text encoders. Each text encoder will encode the prompt (the entire prompt, not half of it for each), and the big prompt that is obtained from each text encoder will be concatenated together to get an even bigger encoded prompt. 
+  - Pass the encoded prompts and the noisy image to the UNet
+  - The UNet predicts the noise in the noisy latents (not the clean latent itself). This noise is a tensor that has the same size as the input latent. 
+  - Compute the loss using MSE between the predicted noise and the epsilon noise added to the latent.
+  - Compute gradients, update the parameters, and repeat.
+
+### Training hyperparameters and information:
+  - more than 12k training examples
+  - 25 epochs with approximately 33k steps, and a batch size of 3
+  - Euler Discrete noise scheduler and epsilon noise prediction type, similar to the base model. It is important to use the same noise scheduler and prediction type as the base model because it is how the model was trained to use and work well on. 
+  - Constant learning rate scheduler. Due to the noise being added to the image with random time steps, I want to have the same learning rate at each training step so that it can learn to predict different noise equally. 
+  - 5% warmup step
+  - learning rate for LoRA in UNet: 1e-4. The recommended learning rate for fine-tuning UNet in Stable Diffusion XL using LoRA. 
+  - learning rate for LoRA in text encoder 1 (OpenCLIP-ViT/G): 5e-5. This is also the recommended learning rate. This is lower than the one for UNET because we don't want to fine-tune the text encoder too much, as the UNET is the main component in this task that needs to be fine-tuned, not the text encoder. Also, the text encoders are already good enough and just need slight fine-tuning. 
+  - learning rate for LoRA in text encoder 2 (CLIP-ViT/L): 1e-5
+  - Loss function: MSE between the predicted noise and the actual added noise. 
+  - Optimizer: adamw
+  - Adam weight decay: 1e-2. This is the default value. 
+  - Adam beta 1: 0.9. This is the default value. 
+  - Adam beta 2: 0.999. This is the default value.
+  - Adam epsilon: 1e-8. This is the default value.
+  - gradient clipping with max gradient norm of 1.0. To prevent gradient exploding in the big model like this. 
+  - Mixed precision training with fp16 (16-bit floating point). For faster and less resource-intensive training (fine-tuning)
+
+## Inference:
+During evaluation and inference:
+1. Encode the long prompt using the proposed method
+2. Forward diffusion:
+create a latent that is pure noise, which is added over several time steps 
+3. Reserve diffusion:
+At each time step, the noisy latent and the encoded prompt are passed through the UNET, the UNET predicts the noise at that time step in the image
+After predicting the noise at a time step, do math to get the cleaner latent using the given scheduler and prediction type (simply reverse the math equation in the given scheduler)
+Repeat this process several times to get a cleaner latent image each time
+4. Pass the clean latent through the VAE encoder to output the final image
+
+## Run the code
+### Setup
 - Python version: 3.12.9
 - Install dependencies:<br>
   ```bash
@@ -44,7 +128,8 @@ The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
   ```
 - Change `"num_processes": 3` to the number of processes that you want. This should be the same as the number of GPUs that you want to train the model on.
   For example, if you want to train the model on 1 GPU, then change it to `"num_processes": 1`
-## Run training
+  
+### Run training
 - Make sure that you are in the book_cover_synthesis folder.
 - Check what GPUs are available.
 - Then do: 
@@ -103,25 +188,9 @@ The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
   --resume_from_checkpoint="latest"
   ```
   If not done, please also set the environment variables `MODEL_NAME` and `TRAIN_DIR` as above before running the script to resume the training.
-  ### Training hyperparameters and information:
-  - more than 12k training examples
-  - 25 epochs with approximately 33k steps, and a batch size of 3
-  - Euler Discrete noise scheduler and epsilon noise prediction type, similar to the base model
-  - constant learning rate scheduler due to the noise being added to the image with random time steps.  
-  - 5% warmup step
-  - learning rate for LoRA in UNet: 1e-4
-  - learning rate for LoRA in text encoder 1 (OpenCLIP-ViT/G): 5e-5
-  - learning rate for LoRA in text encoder 2 (CLIP-ViT/L): 1e-5
-  - Loss function: MSE
-  - Optimizer: adamw
-  - Adam weight decay: 1e-2
-  - Adam beta 1: 0.9
-  - Adam beta 2: 0.999
-  - Adam epsilon: 1e-8
-  - gradient clipping with max gradient norm of 1.0
-  - Mixed precision training with fp16 (16-bit floating point)
 
-## Run validation
+
+### Run validation
 - Do:
   ```bash
   python3 src/validation.py \
@@ -136,7 +205,7 @@ The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
   3. `--num_prompts_to_evaluate=6` is the number of test prompts that you want to use to do the validation. This number should be divisible by 3. Here, I set it to 6.
   4. `--log_path="./evaluation_result/clip_scores.txt"` is the path to save the validation output. You should not change this unless you need to
  
-## Run inference
+### Run inference
 - Do:
   ```bash
   python3 src/inference.py \
@@ -150,6 +219,7 @@ The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
   3. `--guidance_scale` controls how closely the model will follow the prompt during generation. The lower the number, the freer and more creative the model can be. The values I often use are 5 (default), 7, and 10 
 
 ## Results:
+### Sample images for human preferences:
 - Prompt: "Book Cover - This book title is \"love and mistletoe\". This book publisher is \"beaverstone press llc\". This book genres are romance , contemporary , contemporary romance , holiday , christmas , holiday , cultural , ireland , novella , business , amazon , new adult. an alternate cover edition can be found here . stand alone christmas novella in the ballybeg series of irish romantic comedies . love laughter and a happily ever after during the festive season kissed by christmas true love by new year policeman brian glenn wants a promotion . studying for a degree in criminology is the first step . when a member of ballybeg most notorious family struts into his forensic psychology class his hopes for a peaceful semester vanish . sharon maccarthy is the last woman he should get involved with however hot and bothered she makes him get under his police uniform . can he survive the semester without succumbing to her charms sharon had a rough few months . she knows her future job prospects depend on her finally finishing her degree . when she is paired with her secret crush for the semester project she sees a chance for happiness . can she persuade brian that there is more to her than sequins high heels and a rap sheet." <br>
   ![image](https://github.com/user-attachments/assets/75283a87-a778-4c94-abb2-81e7e5d2e008)
 
@@ -168,7 +238,9 @@ The dataset is located on the UMass Lowell gpu2 server: username@cs-gpu2.cs.uml.
 - Prompt: "Book Cover - This book title is "speaker for the dead" . This book publisher is "tor books" . This book Genres tags are science fiction , fiction , fantasy , science fiction fantasy , young adult , audiobook , science fiction , aliens , space , novels , space , space opera ."<br>
   ![image](https://github.com/user-attachments/assets/3bf0da9f-6134-4e90-bb2a-2a460cda220c)
 
-
+## ClIP score:
+13.6
+information about how CLIP scores and how to compute it: https://huggingface.co/docs/diffusers/en/conceptual/evaluation#text-guided-image-generation
 
 
 
