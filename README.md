@@ -88,8 +88,7 @@ text_encoder_one.add_adapter(text_lora_config)
 ## Inference:
 During evaluation and inference:
 1. Encode the long prompt using the proposed method
-2. Forward diffusion:
-create a latent that is pure noise, which is added over several time steps 
+2. Create a random latent image that is the same shape as the latent created by the VAE encoder that filled with random numbers that are normally distributed (Gaussian distribution)(this is called Gaussian noise). In PyTorch, do it by using: `torch.randn(.....)` (if you use a noise scheduler that uses a different kind of noise, that is not Gaussian noise(random number drawn from a Gaussian distribution), then use that kind of noise)
 3. Reserve diffusion:
 At each time step, the noisy latent and the encoded prompt are passed through the UNET, the UNET predicts the noise at that time step in the image
 After predicting the noise at a time step, do math to get the cleaner latent using the given scheduler and prediction type (simply reverse the math equation in the given scheduler)
