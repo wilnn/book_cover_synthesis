@@ -16,14 +16,14 @@
 - limited text prompt of only 77 tokens due to the maximum length of the CLIP encoder. This problem needs to be addressed since the prompts that I use are often at least 200 tokens.
 - Even though rare, this model can output a grayscale image even though you don't ask it to. It can be due to the training data of the model has a lot of grayscale images. 
 ### Problem with fine-tuning the diffusion model
-Due to the fact that noise is added with random time steps for each image in the batch at each training step, the model essentially has to learn to predict different noise for the same images at different epochs, which leads to the training loss fluctuating a lot during training. Therefore, I can not use the train loss to monitor during training to see if the model is converging. The good news is that this is completely normal when training stable diffusion models.<br>
+Due to the fact that the epsilon in the noise scheduler is a matrix that has the same shape as the latent image and filled with random number draw from the Gausian distribution no matter the time step, and noise is added with random time steps for each image in the batch at each training step, the model essentially has to learn to predict different noise for the same images at different epochs, which leads to the training loss fluctuating a lot during training. Therefore, I can not use the train loss to monitor during training to see if the model is converging. The good news is that this is completely normal when training stable diffusion models.<br>
 ![image](https://github.com/user-attachments/assets/359e5a46-0350-410f-8564-16b88e9a0b38)
 
 ## Overcome the limitation of the maximum sequence length of the encoder
 - The clip text encoder has a maximum sequence length of only 77 tokens. However, the text prompt for this task is often at least 250 tokens. The good news is that the UNET does not limit the sequence length.
 
 - Solution:
-  - First, tokenized the entire text prompt using the provided tokenizer that goes with the clip text encoder, and padded, truncated the prompts in the batch to have a max length of 385 tokens.  (the max length size should be divisible by the original max length size(385 is divisible by 77)
+  - First, tokenized the entire text prompt using the provided tokenizer that goes with the clip text encoder, and padded, truncated the prompts in the batch to have a max length of 385 tokens.  (The max length size should be divisible by the original max length size(385 is divisible by 77)
   - Then, encode each chunk of 77 tokens using the clip text encoder
   - Finally, concatenate the encoded tokens back together 
   - This big encoded prompt, later on, can be passed directly to the UNET along with the noisy latent
