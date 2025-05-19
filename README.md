@@ -5,7 +5,8 @@
 - 2 text encoders: OpenCLIP-ViT/G (By OpenAI) and CLIP-ViT/L (By LAION)
 - VAE: same autoencoder architecture used for the original Stable Diffusion at a larger batch size (256 vs 9). The encoder downsamples the input image from 1024×1024×3 to 128×128×4
 - Unet: three times larger UNet backbone. mainly due to more attention blocks and a larger cross-attention context, as SDXL uses a second text encoder
-- Use the Euler Discrete noise scheduler, which is faster and more efficient than the DDPM scheduler 
+- Use the scaled linear noise scheduler
+- Euler Discrete sampling method, which is faster and more efficient than the original DDPM  
 - Epsilon noise prediction type: Predict the added noise during the forward diffusion
 
 
@@ -91,9 +92,9 @@ During evaluation and inference:
 2. Create a random latent image that is the same shape as the latent created by the VAE encoder that filled with random numbers that are normally distributed (Gaussian distribution)(this is called Gaussian noise). In PyTorch, do it by using: `torch.randn(.....)` (if you use a noise scheduler that uses a different kind of noise, that is not Gaussian noise(random number drawn from a Gaussian distribution), then use that kind of noise)
 3. Reserve diffusion:
 At each time step, the noisy latent and the encoded prompt are passed through the UNET, the UNET predicts the noise at that time step in the image
-After predicting the noise at a time step, do math to get the cleaner latent using the given scheduler and prediction type (simply reverse the math equation in the given scheduler)
+After predicting the noise at a time step, use the equation of the Euler Discrete sampling method to compute the cleaner latent. 
 Repeat this process several times to get a cleaner latent image each time
-4. Pass the clean latent through the VAE encoder to output the final image
+4. Pass the cleaner latent through the VAE encoder to output the final image
 
 ## Run the code
 ### Setup
