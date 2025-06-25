@@ -240,7 +240,7 @@ Repeat this process several times to get a cleaner latent image each time
   ![image](https://github.com/user-attachments/assets/3bf0da9f-6134-4e90-bb2a-2a460cda220c)
 
 ## ClIP score:
-13.6
+13.6<br>
 information about how CLIP scores and how to compute it: https://huggingface.co/docs/diffusers/en/conceptual/evaluation#text-guided-image-generation
 
 
